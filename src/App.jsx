@@ -859,7 +859,7 @@ function App() {
                                     onClick={() => setViewMode('choices')}
                                     className="text-sm px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700"
                                   >
-                                    View All
+                                    View Choice Details
                                   </button>
                                   <button
                                     onClick={() => setInteractionLinkingOpen(
