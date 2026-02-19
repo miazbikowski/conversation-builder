@@ -1,6 +1,6 @@
 # Conversation Editor
 
-Creates a json file of dialogue for an RPG game.
+Browser app to create/update a json file of dialogue for an RPG game.
 
 This is for the dialogue for my cRPG project, so it's based on mine and my colleague's design:
 - There are conditions (can be boolean or integers)
