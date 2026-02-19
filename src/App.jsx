@@ -143,30 +143,59 @@ function ChoiceCard({ choiceId, choice, allChoices, currentConv, selectedConvers
 
       {/* Response */}
       <div className="mb-3">
-        <label className="block text-sm font-medium text-gray-700 mb-1">
-          Response
-        </label>
+        <div className="flex justify-between items-center mb-1">
+          <label className="block text-sm font-medium text-gray-700">Response</label>
+          <button
+            onClick={() => {
+              const current = Array.isArray(choice.response)
+                ? choice.response
+                : choice.response ? [choice.response] : []
+              updateChoice({ response: [...current, ''] })
+            }}
+            className="text-xs px-2 py-1 bg-purple-600 text-white rounded hover:bg-purple-700"
+          >
+            + Add
+          </button>
+        </div>
         {Array.isArray(choice.response) ? (
           choice.response.map((resp, idx) => (
-            <textarea
-              key={idx}
-              value={resp}
-              onChange={(e) => {
-                const newResponse = [...choice.response]
-                newResponse[idx] = e.target.value
-                updateChoice({ response: newResponse })
-              }}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md mb-2"
-              rows="5"
-            />
+            <div key={idx} className="relative mb-2">
+              <textarea
+                value={resp}
+                onChange={(e) => {
+                  const newResponse = [...choice.response]
+                  newResponse[idx] = e.target.value
+                  updateChoice({ response: newResponse })
+                }}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md pr-16"
+                rows="5"
+              />
+              <button
+                onClick={() => {
+                  const newResponse = choice.response.filter((_, i) => i !== idx)
+                  updateChoice({ response: newResponse.length === 1 ? newResponse[0] : newResponse.length === 0 ? undefined : newResponse })
+                }}
+                className="absolute top-2 right-2 text-xs text-red-600 hover:text-red-800"
+              >
+                Remove
+              </button>
+            </div>
           ))
         ) : (
-          <textarea
-            value={choice.response || ''}
-            onChange={(e) => updateChoice({ response: e.target.value })}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md"
-            rows="5"
-          />
+          <div className="relative">
+            <textarea
+              value={choice.response || ''}
+              onChange={(e) => updateChoice({ response: e.target.value })}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md pr-16"
+              rows="5"
+            />
+            <button
+              onClick={() => updateChoice({ response: undefined })}
+              className="absolute top-2 right-2 text-xs text-red-600 hover:text-red-800"
+            >
+              Remove
+            </button>
+          </div>
         )}
       </div>
 
@@ -583,7 +612,23 @@ function App() {
                 <div className="bg-white rounded-lg shadow p-6">
                   {/* Header with view mode toggle */}
                   <div className="flex justify-between items-center mb-4">
-                    <h2 className="text-xl font-bold">{selectedConversation}</h2>
+                    <input
+                      type="text"
+                      defaultValue={selectedConversation}
+                      key={selectedConversation}
+                      onBlur={(e) => {
+                        const newKey = e.target.value.trim()
+                        if (!newKey || newKey === selectedConversation || conversations[newKey]) return
+                        const newConversations = Object.fromEntries(
+                          Object.entries(conversations).map(([k, v]) =>
+                            k === selectedConversation ? [newKey, v] : [k, v]
+                          )
+                        )
+                        setConversations(newConversations)
+                        setSelectedConversation(newKey)
+                      }}
+                      className="text-xl font-bold bg-transparent border-b border-transparent hover:border-gray-300 focus:border-blue-500 focus:outline-none"
+                    />
                     <div className="flex gap-2">
                       <button
                         onClick={() => setViewMode('overview')}
