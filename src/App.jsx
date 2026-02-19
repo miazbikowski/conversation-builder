@@ -537,12 +537,7 @@ function App() {
 
       {/* Main Content */}
       <div className="max-w-7xl mx-auto px-4 py-8 sm:px-6 lg:px-8">
-        {Object.keys(conversations).length === 0 ? (
-          <div className="text-center py-12">
-            <p className="text-gray-500 text-lg">Load a JSON file or create a new conversation to get started</p>
-          </div>
-        ) : (
-          <div className="grid grid-cols-4 gap-6">
+        <div className="grid grid-cols-4 gap-6">
             {/* Sidebar - Conversation List */}
             <div className="col-span-1">
               <div className="bg-white rounded-lg shadow p-4">
@@ -994,7 +989,6 @@ function App() {
               )}
             </div>
           </div>
-        )}
       </div>
     </div>
   )
