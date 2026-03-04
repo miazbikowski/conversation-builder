@@ -1,4 +1,10 @@
-import { useState } from 'react'
+import { useState, useEffect, useMemo } from 'react'
+import {
+  ReactFlow, Background, Controls, MiniMap,
+  useNodesState, useEdgesState, Handle, Position, MarkerType
+} from '@xyflow/react'
+import '@xyflow/react/dist/style.css'
+import dagre from '@dagrejs/dagre'
 
 // Recursive component to display a choice and its nested choices
 function ChoiceCard({ choiceId, choice, allChoices, currentConv, selectedConversation, conversations, setConversations, depth = 0 }) {
@@ -7,6 +13,8 @@ function ChoiceCard({ choiceId, choice, allChoices, currentConv, selectedConvers
   const [reqCondStr, setReqCondStr] = useState(() => tupleStr(choice.required_conditions))
   const [incrCondStr, setIncrCondStr] = useState(() => tupleStr(choice.increment_conditions))
   const [decrCondStr, setDecrCondStr] = useState(() => tupleStr(choice.decrement_conditions))
+  const [addItemsStr, setAddItemsStr] = useState(() => tupleStr(choice.add_items))
+  const [completeTasksStr, setCompleteTasksStr] = useState(() => tupleStr(choice.complete_tasks))
 
   const updateChoice = (updates) => {
     setConversations({
@@ -128,17 +136,76 @@ function ChoiceCard({ choiceId, choice, allChoices, currentConv, selectedConvers
         />
       </div>
 
-      {/* Choice Text */}
+      {/* Required Items */}
       <div className="mb-3">
         <label className="block text-sm font-medium text-gray-700 mb-1">
-          Choice Text
+          Required Items (comma-separated)
         </label>
-        <textarea
-          value={choice.text || ''}
-          onChange={(e) => updateChoice({ text: e.target.value })}
+        <input
+          type="text"
+          value={choice.required_items ? choice.required_items.join(', ') : ''}
+          onChange={(e) => {
+            const items = e.target.value
+              .split(',')
+              .map(i => i.trim())
+              .filter(i => i.length > 0)
+            updateChoice({ required_items: items.length > 0 ? items : undefined })
+          }}
           className="w-full px-3 py-2 border border-gray-300 rounded-md"
-          rows="5"
+          placeholder="e.g., sword, key"
         />
+      </div>
+
+      {/* Choice Text */}
+      <div className="mb-3">
+        <div className="flex justify-between items-center mb-1">
+          <label className="block text-sm font-medium text-gray-700">Choice Text</label>
+          <button
+            onClick={() => {
+              const current = Array.isArray(choice.text)
+                ? choice.text
+                : choice.text ? [choice.text] : []
+              updateChoice({ text: [...current, ''] })
+            }}
+            className="text-xs px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700"
+          >
+            + Add
+          </button>
+        </div>
+        {Array.isArray(choice.text) ? (
+          choice.text.map((t, idx) => (
+            <div key={idx} className="relative mb-2">
+              <textarea
+                value={t}
+                onChange={(e) => {
+                  const newText = [...choice.text]
+                  newText[idx] = e.target.value
+                  updateChoice({ text: newText })
+                }}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md pr-16"
+                rows="5"
+              />
+              <button
+                onClick={() => {
+                  const newText = choice.text.filter((_, i) => i !== idx)
+                  updateChoice({ text: newText.length === 1 ? newText[0] : newText.length === 0 ? undefined : newText })
+                }}
+                className="absolute top-2 right-2 text-xs text-red-600 hover:text-red-800"
+              >
+                Remove
+              </button>
+            </div>
+          ))
+        ) : (
+          <div className="relative">
+            <textarea
+              value={choice.text || ''}
+              onChange={(e) => updateChoice({ text: e.target.value })}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md pr-16"
+              rows="5"
+            />
+          </div>
+        )}
       </div>
 
       {/* Response */}
@@ -265,6 +332,54 @@ function ChoiceCard({ choiceId, choice, allChoices, currentConv, selectedConvers
           }}
           className="w-full px-3 py-2 border border-gray-300 rounded-md"
           placeholder="e.g., killed_bunktek_survivor"
+        />
+      </div>
+
+      {/* Add Items */}
+      <div className="mb-3">
+        <label className="block text-sm font-medium text-gray-700 mb-1">
+          Add Items (format: name:amount, name:amount)
+        </label>
+        <input
+          type="text"
+          value={addItemsStr}
+          onChange={(e) => {
+            setAddItemsStr(e.target.value)
+            const items = e.target.value
+              .split(',')
+              .map(pair => {
+                const [name, amt] = pair.split(':').map(s => s.trim())
+                return name && amt ? [name, parseInt(amt) || 1] : null
+              })
+              .filter(pair => pair !== null)
+            updateChoice({ add_items: items.length > 0 ? items : undefined })
+          }}
+          className="w-full px-3 py-2 border border-gray-300 rounded-md"
+          placeholder="e.g., sword:1, health_potion:3"
+        />
+      </div>
+
+      {/* Complete Tasks */}
+      <div className="mb-3">
+        <label className="block text-sm font-medium text-gray-700 mb-1">
+          Complete Tasks (format: goal_key:task_key, goal_key:task_key)
+        </label>
+        <input
+          type="text"
+          value={completeTasksStr}
+          onChange={(e) => {
+            setCompleteTasksStr(e.target.value)
+            const tasks = e.target.value
+              .split(',')
+              .map(pair => {
+                const [goal, task] = pair.split(':').map(s => s.trim())
+                return goal && task ? [goal, task] : null
+              })
+              .filter(pair => pair !== null)
+            updateChoice({ complete_tasks: tasks.length > 0 ? tasks : undefined })
+          }}
+          className="w-full px-3 py-2 border border-gray-300 rounded-md"
+          placeholder="e.g., main_quest:find_sword, side_quest:talk_to_npc"
         />
       </div>
 
@@ -408,7 +523,7 @@ function ChoiceCard({ choiceId, choice, allChoices, currentConv, selectedConvers
               </select>
             )
           })()}
-          {choice.choices && choice.choices.map(nestedChoiceId => {
+          {choice.choices && choice.choices.map((nestedChoiceId, idx) => {
             const nestedChoice = allChoices[nestedChoiceId]
             if (!nestedChoice) {
               return (
@@ -419,12 +534,32 @@ function ChoiceCard({ choiceId, choice, allChoices, currentConv, selectedConvers
             }
             return (
               <div key={nestedChoiceId} className="relative">
-                <button
-                  onClick={() => updateChoice({ choices: choice.choices.filter(id => id !== nestedChoiceId) })}
-                  className="absolute top-2 right-2 z-10 text-xs text-orange-600 hover:text-orange-800"
-                >
-                  Unlink
-                </button>
+                <div className="absolute top-2 right-2 z-10 flex items-center gap-1">
+                  <button
+                    onClick={() => {
+                      const newChoices = [...choice.choices]
+                      ;[newChoices[idx - 1], newChoices[idx]] = [newChoices[idx], newChoices[idx - 1]]
+                      updateChoice({ choices: newChoices })
+                    }}
+                    disabled={idx === 0}
+                    className="text-xs text-gray-500 hover:text-gray-700 disabled:opacity-30"
+                  >↑</button>
+                  <button
+                    onClick={() => {
+                      const newChoices = [...choice.choices]
+                      ;[newChoices[idx], newChoices[idx + 1]] = [newChoices[idx + 1], newChoices[idx]]
+                      updateChoice({ choices: newChoices })
+                    }}
+                    disabled={idx === choice.choices.length - 1}
+                    className="text-xs text-gray-500 hover:text-gray-700 disabled:opacity-30"
+                  >↓</button>
+                  <button
+                    onClick={() => updateChoice({ choices: choice.choices.filter(id => id !== nestedChoiceId) })}
+                    className="text-xs text-orange-600 hover:text-orange-800"
+                  >
+                    Unlink
+                  </button>
+                </div>
                 <ChoiceCard
                   choiceId={nestedChoiceId}
                   choice={nestedChoice}
@@ -452,6 +587,169 @@ const getNextChoiceId = (choices) => {
   return `choice${nums.length > 0 ? Math.max(...nums) + 1 : 1}`
 }
 
+// ── React Flow custom nodes (must be defined outside component for stable refs) ──
+
+const InteractionNode = ({ data }) => (
+  <div className="px-3 py-2 bg-blue-100 border-2 border-blue-500 rounded-lg min-w-36 w-52">
+    <Handle type="source" position={Position.Right} />
+    <div className="text-xs font-bold text-blue-800">{data.label}</div>
+    <div className="text-xs text-blue-500 mb-1">interaction</div>
+    {data.preview && <div className="text-xs text-blue-700 leading-tight border-t border-blue-200 pt-1">{data.preview}</div>}
+  </div>
+)
+
+const ChoiceNode = ({ data, selected }) => (
+  <div className={`px-3 py-2 bg-white border-2 rounded-lg w-52 ${selected ? 'border-purple-500 shadow-md' : 'border-gray-300'}`}>
+    <Handle type="target" position={Position.Left} />
+    <div className="text-xs font-semibold text-purple-700 mb-1 truncate">{data.id}</div>
+    <div className="text-xs text-gray-500 leading-tight">{data.preview || '(no text)'}</div>
+    {data.responses && data.responses.length > 0 && (
+      <div className="mt-1 border-t border-gray-100 pt-1 space-y-1">
+        {data.responses.map((r, i) => (
+          <div key={i} className="text-xs text-indigo-400 leading-tight italic">{r}</div>
+        ))}
+      </div>
+    )}
+    <Handle type="source" position={Position.Right} />
+  </div>
+)
+
+const nodeTypes = { choiceNode: ChoiceNode, interactionNode: InteractionNode }
+
+function buildGraph(choices, interactions) {
+  const rawNodes = []
+  const rawEdges = []
+
+  Object.entries(interactions).forEach(([key, interaction]) => {
+    const textArr = Array.isArray(interaction.text) ? interaction.text : (interaction.text ? [interaction.text] : [])
+    const preview = textArr[0] || ''
+    rawNodes.push({ id: `interaction::${key}`, type: 'interactionNode', data: { label: key, preview }, position: { x: 0, y: 0 } })
+    ;(interaction.choices || []).forEach(choiceId => {
+      rawEdges.push({
+        id: `i:${key}->${choiceId}`, source: `interaction::${key}`, target: choiceId,
+        style: { stroke: '#3b82f6' }, markerEnd: { type: MarkerType.ArrowClosed, color: '#3b82f6' }
+      })
+    })
+  })
+
+  Object.entries(choices).forEach(([id, choice]) => {
+    const textArr = Array.isArray(choice.text) ? choice.text : (choice.text ? [choice.text] : [])
+    const preview = textArr[0] || ''
+    const respArr = Array.isArray(choice.response) ? choice.response : (choice.response ? [choice.response] : [])
+    rawNodes.push({ id, type: 'choiceNode', data: { id, preview, responses: respArr }, position: { x: 0, y: 0 } })
+    ;(choice.choices || []).forEach(childId => {
+      rawEdges.push({
+        id: `c:${id}->${childId}`, source: id, target: childId,
+        markerEnd: { type: MarkerType.ArrowClosed }
+      })
+    })
+  })
+
+  const g = new dagre.graphlib.Graph()
+  g.setDefaultEdgeLabel(() => ({}))
+  g.setGraph({ rankdir: 'LR', ranksep: 100, nodesep: 30 })
+  const estimateTextHeight = (text, nodeWidth = 208) => {
+    const charsPerLine = Math.floor(nodeWidth / 6.5) // ~6.5px per char at text-xs
+    const lines = text ? Math.ceil(text.length / charsPerLine) : 1
+    return lines * 16 // 16px line height
+  }
+  rawNodes.forEach(n => {
+    if (n.type === 'interactionNode') {
+      const textH = n.data.preview ? estimateTextHeight(n.data.preview) + 12 : 0
+      g.setNode(n.id, { width: 220, height: 48 + textH })
+    } else {
+      const textH = estimateTextHeight(n.data.preview)
+      const respH = n.data.responses && n.data.responses.length > 0
+        ? 12 + n.data.responses.reduce((sum, r) => sum + estimateTextHeight(r) + 4, 0)
+        : 0
+      g.setNode(n.id, { width: 220, height: 40 + textH + respH })
+    }
+  })
+  rawEdges.forEach(e => g.setEdge(e.source, e.target))
+  dagre.layout(g)
+
+  return {
+    nodes: rawNodes.map(n => {
+      const { x, y, width, height } = g.node(n.id)
+      return { ...n, position: { x: x - width / 2, y: y - height / 2 } }
+    }),
+    edges: rawEdges
+  }
+}
+
+function ChoiceGraphView({ currentConv, selectedConversation, conversations, setConversations, handleAddChoice }) {
+  const [selectedChoiceId, setSelectedChoiceId] = useState(null)
+
+  const { nodes: initNodes, edges: initEdges } = useMemo(
+    () => buildGraph(currentConv.choices || {}, currentConv.interactions || {}),
+    [currentConv.choices, currentConv.interactions]
+  )
+
+  const [nodes, setNodes, onNodesChange] = useNodesState(initNodes)
+  const [edges, setEdges, onEdgesChange] = useEdgesState(initEdges)
+
+  useEffect(() => {
+    setNodes(initNodes)
+    setEdges(initEdges)
+  }, [initNodes, initEdges])
+
+  const selectedChoice = selectedChoiceId ? currentConv.choices?.[selectedChoiceId] : null
+
+  return (
+    <div>
+      <div className="flex justify-between items-center mb-4">
+        <h3 className="text-lg font-semibold">All Choices</h3>
+        <button onClick={handleAddChoice} className="px-4 py-2 bg-purple-600 text-white rounded hover:bg-purple-700">
+          + New Choice
+        </button>
+      </div>
+      <div className="flex gap-4" style={{ height: '72vh' }}>
+        <div className="flex-1 border rounded-lg overflow-hidden bg-white">
+          <ReactFlow
+            nodes={nodes}
+            edges={edges}
+            onNodesChange={onNodesChange}
+            onEdgesChange={onEdgesChange}
+            nodeTypes={nodeTypes}
+            onNodeClick={(_, node) => {
+              if (!node.id.startsWith('interaction::')) {
+                setSelectedChoiceId(prev => prev === node.id ? null : node.id)
+              }
+            }}
+            fitView
+            fitViewOptions={{ padding: 0.2 }}
+          >
+            <Background />
+            <Controls />
+            <MiniMap nodeStrokeWidth={3} />
+          </ReactFlow>
+        </div>
+        {selectedChoice && (
+          <div className="w-96 overflow-y-auto border rounded-lg bg-gray-50">
+            <div className="flex justify-between items-center px-4 py-2 border-b bg-white sticky top-0">
+              <span className="text-sm font-semibold text-gray-600">Editing: {selectedChoiceId}</span>
+              <button onClick={() => setSelectedChoiceId(null)} className="text-gray-400 hover:text-gray-700 text-xl leading-none">×</button>
+            </div>
+            <div className="p-2">
+              <ChoiceCard
+                key={selectedChoiceId}
+                choiceId={selectedChoiceId}
+                choice={selectedChoice}
+                allChoices={currentConv.choices}
+                currentConv={currentConv}
+                selectedConversation={selectedConversation}
+                conversations={conversations}
+                setConversations={setConversations}
+                depth={0}
+              />
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function App() {
   const [conversations, setConversations] = useState({})
   const [selectedConversation, setSelectedConversation] = useState(null)
@@ -459,6 +757,9 @@ function App() {
   const [interactionLinkingOpen, setInteractionLinkingOpen] = useState(null)
   const [newConvName, setNewConvName] = useState('')
   const [newInteractionKey, setNewInteractionKey] = useState('')
+  const [interactionReqCondStrs, setInteractionReqCondStrs] = useState({})
+  const [interactionGoalChecksStrs, setInteractionGoalChecksStrs] = useState({})
+  const tupleStr = (arr) => arr ? arr.map(([n, v]) => `${n}:${v}`).join(', ') : ''
 
   // Load JSON file
   const handleFileUpload = (e) => {
@@ -722,10 +1023,15 @@ function App() {
                     {currentConv.interactions && Object.keys(currentConv.interactions).length > 0 ? (
                       <div className="space-y-4">
                         {Object.entries(currentConv.interactions).map(([interactionKey, interaction]) => (
-                          <div key={interactionKey} className="border rounded-lg p-4 bg-gray-50">
+                          <div key={interactionKey} className={`border rounded-lg p-4 bg-gray-50 ${!interaction.choices || interaction.choices.length === 0 ? 'border-red-400' : ''}`}>
                             {/* Interaction Header */}
                             <div className="flex justify-between items-center mb-3">
-                              <h4 className="font-semibold text-blue-700">{interactionKey}</h4>
+                              <div className="flex items-center gap-2">
+                                <h4 className="font-semibold text-blue-700">{interactionKey}</h4>
+                                {(!interaction.choices || interaction.choices.length === 0) && (
+                                  <span className="text-xs text-red-600 font-medium">Must have at least 1 choice</span>
+                                )}
+                              </div>
                               <button
                                 onClick={() => {
                                   const newInteractions = { ...currentConv.interactions }
@@ -746,72 +1052,111 @@ function App() {
 
                             {/* Text */}
                             <div className="mb-3">
-                              <label className="block text-sm font-medium text-gray-700 mb-1">
-                                Text
-                              </label>
-                              {Array.isArray(interaction.text) ? (
-                                interaction.text.map((text, idx) => (
-                                  <textarea
-                                    key={idx}
-                                    value={text}
-                                    onChange={(e) => {
-                                      const newText = [...interaction.text]
-                                      newText[idx] = e.target.value
-                                      setConversations({
-                                        ...conversations,
-                                        [selectedConversation]: {
-                                          ...currentConv,
-                                          interactions: {
-                                            ...currentConv.interactions,
-                                            [interactionKey]: {
-                                              ...interaction,
-                                              text: newText
-                                            }
-                                          }
-                                        }
-                                      })
-                                    }}
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-md mb-2"
-                                    rows="5"
-                                  />
-                                ))
-                              ) : (
-                                <textarea
-                                  value={interaction.text || ''}
-                                  onChange={(e) => {
+                              <div className="flex justify-between items-center mb-1">
+                                <label className="block text-sm font-medium text-gray-700">Text</label>
+                                <button
+                                  onClick={() => {
+                                    const current = Array.isArray(interaction.text)
+                                      ? interaction.text
+                                      : interaction.text ? [interaction.text] : []
                                     setConversations({
                                       ...conversations,
                                       [selectedConversation]: {
                                         ...currentConv,
                                         interactions: {
                                           ...currentConv.interactions,
-                                          [interactionKey]: {
-                                            ...interaction,
-                                            text: e.target.value
-                                          }
+                                          [interactionKey]: { ...interaction, text: [...current, ''] }
                                         }
                                       }
                                     })
                                   }}
-                                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                                  rows="5"
-                                />
+                                  className="text-xs px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700"
+                                >
+                                  + Add
+                                </button>
+                              </div>
+                              {Array.isArray(interaction.text) ? (
+                                interaction.text.map((text, idx) => (
+                                  <div key={idx} className="relative mb-2">
+                                    <textarea
+                                      value={text}
+                                      onChange={(e) => {
+                                        const newText = [...interaction.text]
+                                        newText[idx] = e.target.value
+                                        setConversations({
+                                          ...conversations,
+                                          [selectedConversation]: {
+                                            ...currentConv,
+                                            interactions: {
+                                              ...currentConv.interactions,
+                                              [interactionKey]: { ...interaction, text: newText }
+                                            }
+                                          }
+                                        })
+                                      }}
+                                      className="w-full px-3 py-2 border border-gray-300 rounded-md pr-16"
+                                      rows="5"
+                                    />
+                                    <button
+                                      onClick={() => {
+                                        const newText = interaction.text.filter((_, i) => i !== idx)
+                                        setConversations({
+                                          ...conversations,
+                                          [selectedConversation]: {
+                                            ...currentConv,
+                                            interactions: {
+                                              ...currentConv.interactions,
+                                              [interactionKey]: { ...interaction, text: newText.length === 0 ? undefined : newText.length === 1 ? newText[0] : newText }
+                                            }
+                                          }
+                                        })
+                                      }}
+                                      className="absolute top-2 right-2 text-xs text-red-600 hover:text-red-800"
+                                    >
+                                      Remove
+                                    </button>
+                                  </div>
+                                ))
+                              ) : (
+                                <div className="relative">
+                                  <textarea
+                                    value={interaction.text || ''}
+                                    onChange={(e) => {
+                                      setConversations({
+                                        ...conversations,
+                                        [selectedConversation]: {
+                                          ...currentConv,
+                                          interactions: {
+                                            ...currentConv.interactions,
+                                            [interactionKey]: { ...interaction, text: e.target.value }
+                                          }
+                                        }
+                                      })
+                                    }}
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-md pr-16"
+                                    rows="5"
+                                  />
+                                </div>
                               )}
                             </div>
 
-                            {/* Condition Checks */}
+                            {/* Required Conditions */}
                             <div className="mb-3">
                               <label className="block text-sm font-medium text-gray-700 mb-1">
-                                Condition Checks (comma-separated)
+                                Required Conditions (format: name:value, name:value)
                               </label>
                               <input
                                 type="text"
-                                value={interaction.condition_checks ? interaction.condition_checks.join(', ') : ''}
+                                value={interactionReqCondStrs[interactionKey] ?? tupleStr(interaction.required_conditions)}
                                 onChange={(e) => {
-                                  const checks = e.target.value
+                                  setInteractionReqCondStrs({ ...interactionReqCondStrs, [interactionKey]: e.target.value })
+                                  const conds = e.target.value
                                     .split(',')
-                                    .map(c => c.trim())
-                                    .filter(c => c.length > 0)
+                                    .map(pair => {
+                                      const [name, val] = pair.split(':').map(s => s.trim())
+                                      return name && val !== undefined && val !== '' ? [name, parseInt(val) || 1] : null
+                                    })
+                                    .filter(pair => pair !== null)
                                   setConversations({
                                     ...conversations,
                                     [selectedConversation]: {
@@ -820,14 +1165,14 @@ function App() {
                                         ...currentConv.interactions,
                                         [interactionKey]: {
                                           ...interaction,
-                                          condition_checks: checks.length > 0 ? checks : undefined
+                                          required_conditions: conds.length > 0 ? conds : undefined
                                         }
                                       }
                                     }
                                   })
                                 }}
                                 className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                                placeholder="e.g., has_sword, completed_quest"
+                                placeholder="e.g., has_sword:1, quest_stage:2"
                               />
                             </div>
 
@@ -838,10 +1183,9 @@ function App() {
                               </label>
                               <input
                                 type="text"
-                                value={interaction.goal_completed_checks
-                                  ? interaction.goal_completed_checks.map(([name, val]) => `${name}:${val}`).join(', ')
-                                  : ''}
+                                value={interactionGoalChecksStrs[interactionKey] ?? tupleStr(interaction.goal_completed_checks)}
                                 onChange={(e) => {
+                                  setInteractionGoalChecksStrs({ ...interactionGoalChecksStrs, [interactionKey]: e.target.value })
                                   const checks = e.target.value
                                     .split(',')
                                     .map(pair => {
@@ -952,27 +1296,47 @@ function App() {
                               })()}
                               {interaction.choices && interaction.choices.length > 0 && (
                                 <div className="space-y-1">
-                                  {interaction.choices.map(id => (
+                                  {interaction.choices.map((id, idx) => (
                                     <div key={id} className="flex justify-between items-center px-2 py-1 bg-white border rounded text-sm">
                                       <span className="font-mono">{id}{currentConv.choices?.[id]?.text ? ` — ${currentConv.choices[id].text.slice(0, 40)}` : ''}</span>
-                                      <button
-                                        onClick={() => setConversations({
-                                          ...conversations,
-                                          [selectedConversation]: {
-                                            ...currentConv,
-                                            interactions: {
-                                              ...currentConv.interactions,
-                                              [interactionKey]: {
-                                                ...interaction,
-                                                choices: interaction.choices.filter(c => c !== id)
+                                      <div className="flex items-center gap-1">
+                                        <button
+                                          onClick={() => {
+                                            const newChoices = [...interaction.choices]
+                                            ;[newChoices[idx - 1], newChoices[idx]] = [newChoices[idx], newChoices[idx - 1]]
+                                            setConversations({ ...conversations, [selectedConversation]: { ...currentConv, interactions: { ...currentConv.interactions, [interactionKey]: { ...interaction, choices: newChoices } } } })
+                                          }}
+                                          disabled={idx === 0}
+                                          className="text-xs text-gray-500 hover:text-gray-700 disabled:opacity-30 px-1"
+                                        >↑</button>
+                                        <button
+                                          onClick={() => {
+                                            const newChoices = [...interaction.choices]
+                                            ;[newChoices[idx], newChoices[idx + 1]] = [newChoices[idx + 1], newChoices[idx]]
+                                            setConversations({ ...conversations, [selectedConversation]: { ...currentConv, interactions: { ...currentConv.interactions, [interactionKey]: { ...interaction, choices: newChoices } } } })
+                                          }}
+                                          disabled={idx === interaction.choices.length - 1}
+                                          className="text-xs text-gray-500 hover:text-gray-700 disabled:opacity-30 px-1"
+                                        >↓</button>
+                                        <button
+                                          onClick={() => setConversations({
+                                            ...conversations,
+                                            [selectedConversation]: {
+                                              ...currentConv,
+                                              interactions: {
+                                                ...currentConv.interactions,
+                                                [interactionKey]: {
+                                                  ...interaction,
+                                                  choices: interaction.choices.filter(c => c !== id)
+                                                }
                                               }
                                             }
-                                          }
-                                        })}
-                                        className="text-xs text-orange-600 hover:text-orange-800"
-                                      >
-                                        Unlink
-                                      </button>
+                                          })}
+                                          className="text-xs text-orange-600 hover:text-orange-800"
+                                        >
+                                          Unlink
+                                        </button>
+                                      </div>
                                     </div>
                                   ))}
                                 </div>
@@ -988,47 +1352,13 @@ function App() {
                     </>
                   ) : (
                     /* Choices View */
-                    <div>
-                      <div className="flex justify-between items-center mb-4">
-                        <h3 className="text-lg font-semibold">All Choices</h3>
-                        <button
-                          onClick={handleAddChoice}
-                          className="px-4 py-2 bg-purple-600 text-white rounded hover:bg-purple-700"
-                        >
-                          + New Choice
-                        </button>
-                      </div>
-                      {currentConv.choices && Object.keys(currentConv.choices).length > 0 ? (() => {
-                        const interactionRefs = new Set(
-                          Object.values(currentConv.interactions || {}).flatMap(i => i.choices || [])
-                        )
-                        const choiceRefs = new Set(
-                          Object.values(currentConv.choices).flatMap(c => c.choices || [])
-                        )
-                        const visible = Object.entries(currentConv.choices).filter(([id]) =>
-                          interactionRefs.has(id) || !choiceRefs.has(id)
-                        )
-                        return (
-                          <div className="space-y-4">
-                            {visible.map(([choiceId, choice]) => (
-                              <ChoiceCard
-                                key={choiceId}
-                                choiceId={choiceId}
-                                choice={choice}
-                                allChoices={currentConv.choices}
-                                currentConv={currentConv}
-                                selectedConversation={selectedConversation}
-                                conversations={conversations}
-                                setConversations={setConversations}
-                                depth={0}
-                              />
-                            ))}
-                          </div>
-                        )
-                      })() : (
-                        <p className="text-gray-500 text-center py-4">No choices yet</p>
-                      )}
-                    </div>
+                    <ChoiceGraphView
+                      currentConv={currentConv}
+                      selectedConversation={selectedConversation}
+                      conversations={conversations}
+                      setConversations={setConversations}
+                      handleAddChoice={handleAddChoice}
+                    />
                   )}
                 </div>
               )}
