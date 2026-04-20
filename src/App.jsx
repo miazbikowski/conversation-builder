@@ -7,13 +7,18 @@ import '@xyflow/react/dist/style.css'
 import dagre from '@dagrejs/dagre'
 
 // Recursive component to display a choice and its nested choices
-function ChoiceCard({ choiceId, choice, allChoices, currentConv, selectedConversation, conversations, setConversations, depth = 0 }) {
+function ChoiceCard({ choiceId, choice, allChoices, currentConv, selectedConversation, conversations, setConversations, depth = 0, flat = false }) {
   const [linkingOpen, setLinkingOpen] = useState(false)
   const tupleStr = (arr) => arr ? arr.map(([n, v]) => `${n}:${v}`).join(', ') : ''
   const [reqCondStr, setReqCondStr] = useState(() => tupleStr(choice.required_conditions))
   const [incrCondStr, setIncrCondStr] = useState(() => tupleStr(choice.increment_conditions))
   const [decrCondStr, setDecrCondStr] = useState(() => tupleStr(choice.decrement_conditions))
-  const [addItemsStr, setAddItemsStr] = useState(() => tupleStr(choice.add_items))
+  const [addItemsStr, setAddItemsStr] = useState(() => {
+    if (!choice.add_items) return ''
+    return choice.add_items.map(item =>
+      Array.isArray(item) ? `${item[0]}:${item[1]}` : item
+    ).join(', ')
+  })
   const [completeTasksStr, setCompleteTasksStr] = useState(() => tupleStr(choice.complete_tasks))
 
   const updateChoice = (updates) => {
@@ -293,6 +298,19 @@ function ChoiceCard({ choiceId, choice, allChoices, currentConv, selectedConvers
             <span className="text-sm font-medium">Return to Root</span>
           </label>
         </div>
+
+        {/* Delete Gameobject */}
+        <div>
+          <label className="flex items-center">
+            <input
+              type="checkbox"
+              checked={choice.delete_gameobject || false}
+              onChange={(e) => updateChoice({ delete_gameobject: e.target.checked || undefined })}
+              className="mr-2"
+            />
+            <span className="text-sm font-medium">Delete Gameobject</span>
+          </label>
+        </div>
       </div>
 
       {/* Add Goals */}
@@ -348,8 +366,8 @@ function ChoiceCard({ choiceId, choice, allChoices, currentConv, selectedConvers
             const items = e.target.value
               .split(',')
               .map(pair => {
-                const [name, amt] = pair.split(':').map(s => s.trim())
-                return name && amt ? [name, parseInt(amt) || 1] : null
+                const [name, val] = pair.split(':').map(s => s.trim())
+                return name && val !== undefined && val !== '' ? [name, isNaN(val) ? val : parseInt(val)] : null
               })
               .filter(pair => pair !== null)
             updateChoice({ add_items: items.length > 0 ? items : undefined })
@@ -529,6 +547,22 @@ function ChoiceCard({ choiceId, choice, allChoices, currentConv, selectedConvers
               return (
                 <div key={nestedChoiceId} className="text-red-500 text-sm">
                   Missing choice: {nestedChoiceId}
+                </div>
+              )
+            }
+            if (flat) {
+              const nestedText = Array.isArray(nestedChoice.text) ? nestedChoice.text[0] : nestedChoice.text
+              return (
+                <div key={nestedChoiceId} className="flex items-center justify-between px-3 py-2 bg-white border border-gray-200 rounded-md mb-1">
+                  <div className="flex-1 min-w-0 mr-2">
+                    <span className="text-xs font-semibold text-purple-700">{nestedChoiceId}</span>
+                    {nestedText && <span className="text-xs text-gray-500 ml-2 truncate">{nestedText}</span>}
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button onClick={() => { const n = [...choice.choices]; [n[idx-1], n[idx]] = [n[idx], n[idx-1]]; updateChoice({ choices: n }) }} disabled={idx === 0} className="text-xs text-gray-500 hover:text-gray-700 disabled:opacity-30 px-1">↑</button>
+                    <button onClick={() => { const n = [...choice.choices]; [n[idx], n[idx+1]] = [n[idx+1], n[idx]]; updateChoice({ choices: n }) }} disabled={idx === choice.choices.length - 1} className="text-xs text-gray-500 hover:text-gray-700 disabled:opacity-30 px-1">↓</button>
+                    <button onClick={() => updateChoice({ choices: choice.choices.filter(id => id !== nestedChoiceId) })} className="text-xs text-orange-600 hover:text-orange-800">Unlink</button>
+                  </div>
                 </div>
               )
             }
@@ -741,6 +775,7 @@ function ChoiceGraphView({ currentConv, selectedConversation, conversations, set
                 conversations={conversations}
                 setConversations={setConversations}
                 depth={0}
+                flat={true}
               />
             </div>
           </div>
@@ -824,6 +859,16 @@ function App() {
     setNewInteractionKey('')
   }
 
+  const handleDeleteConversation = (key) => {
+    if (!window.confirm(`Delete conversation "${key}"? This cannot be undone.`)) return
+    const { [key]: _, ...rest } = conversations
+    setConversations(rest)
+    if (selectedConversation === key) {
+      const remaining = Object.keys(rest)
+      setSelectedConversation(remaining.length > 0 ? remaining[0] : null)
+    }
+  }
+
   const currentConv = selectedConversation ? conversations[selectedConversation] : null
 
   const handleAddChoice = () => {
@@ -874,17 +919,25 @@ function App() {
                 <h2 className="font-semibold text-lg mb-4">Conversations</h2>
                 <div className="space-y-2 mb-4">
                   {Object.keys(conversations).map(key => (
-                    <button
-                      key={key}
-                      onClick={() => setSelectedConversation(key)}
-                      className={`w-full text-left px-3 py-2 rounded ${
-                        selectedConversation === key
-                          ? 'bg-blue-100 text-blue-700 font-medium'
-                          : 'hover:bg-gray-100'
-                      }`}
-                    >
-                      {key}
-                    </button>
+                    <div key={key} className="flex items-center gap-1">
+                      <button
+                        onClick={() => setSelectedConversation(key)}
+                        className={`flex-1 text-left px-3 py-2 rounded ${
+                          selectedConversation === key
+                            ? 'bg-blue-100 text-blue-700 font-medium'
+                            : 'hover:bg-gray-100'
+                        }`}
+                      >
+                        {key}
+                      </button>
+                      <button
+                        onClick={() => handleDeleteConversation(key)}
+                        className="px-2 py-1 text-gray-400 hover:text-red-600 rounded hover:bg-red-50 text-sm leading-none"
+                        title="Delete conversation"
+                      >
+                        ×
+                      </button>
+                    </div>
                   ))}
                 </div>
                 <div className="flex gap-2">
